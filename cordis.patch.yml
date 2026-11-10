@@ -1,0 +1,9 @@
+# The row `name` MUST equal the package name: the client-modules node half
+# resolves require.resolve('<row-name>/package.json') to find this bundle, and
+# the browser half serves its ./client export at /plugins/<row-name>/client.js.
+# `config` is intentionally omitted: this plugin does not export a `Config`
+# schema, so the loader keeps the raw row. Tunables (timeoutMs) live in code as
+# DEFAULT_TIMEOUT_MS and can still be overridden by a future config row.
+- insert:
+    - id: prompt-enhance
+      name: 'dsh-prompt-enhance-local'

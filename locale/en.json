@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "title": "Prompt enhance",
+    "description": "Rewrite the current draft into a clearer, more actionable prompt using the local DSH model route. Replaces the whole draft in place, never sends it, and keeps a one-click restore point."
+  },
+  "enhance": "Enhance prompt",
+  "enhancing": "Enhancing… (click to cancel)",
+  "revert": "Restore original",
+  "failed": "Enhance failed",
+  "empty": "Nothing to enhance"
+}

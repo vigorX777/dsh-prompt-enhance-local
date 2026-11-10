@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH 增强提示词插件 · 两半结构与一次调用链</title>
+<script>
+/* 首屏前定主题：跟随系统 / 本地记忆 / URL 覆盖，file:// 下 localStorage 可能抛错，故 try/catch */
+(function () {
+  var q = (location.search || '').toLowerCase();
+  var forced = q.indexOf('theme=dark') >= 0 ? 'dark' : (q.indexOf('theme=light') >= 0 ? 'light' : null);
+  var saved = null;
+  try { saved = localStorage.getItem('dsh-pe-theme'); } catch (e) {}
+  var sys = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', forced || saved || sys);
+})();
+</script>
+<style>
+:root{
+  color-scheme: light dark;
+  --bg:#eef1f6;
+  --surface:#ffffff;
+  --surface-2:#f6f8fc;
+  --ink:#182033;
+  --ink-soft:#3d4760;
+  --muted:#6b758c;
+  --line:#dde3ed;
+  --line-strong:#c7d0de;
+  --host:#2b6fd6;
+  --host-soft:rgba(43,111,214,.10);
+  --client:#7a52cc;
+  --client-soft:rgba(122,82,204,.10);
+  --ok:#12855c;
+  --ok-soft:rgba(18,133,92,.11);
+  --err:#c33a52;
+  --err-soft:rgba(195,58,82,.10);
+  --warn:#a9740d;
+  --warn-soft:rgba(169,116,13,.11);
+  --code-bg:#edf2f9;
+  --code-ink:#26406b;
+  --shadow:0 1px 2px rgba(20,30,55,.05), 0 10px 28px rgba(20,30,55,.055);
+  --a:#12855c; --b:#2b6fd6; --c:#a9740d;
+  --radius:12px;
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0c1017;
+  --surface:#151b26;
+  --surface-2:#1b2230;
+  --ink:#e8edf7;
+  --ink-soft:#c3ccdd;
+  --muted:#8c98ae;
+  --line:#27303f;
+  --line-strong:#354054;
+  --host:#6ea6ff;
+  --host-soft:rgba(110,166,255,.13);
+  --client:#b596ff;
+  --client-soft:rgba(181,150,255,.13);
+  --ok:#4fd0a0;
+  --ok-soft:rgba(79,208,160,.12);
+  --err:#ff7a90;
+  --err-soft:rgba(255,122,144,.12);
+  --warn:#e7b45a;
+  --warn-soft:rgba(231,180,90,.12);
+  --code-bg:#101725;
+  --code-ink:#a9c2ef;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.28);
+  --a:#4fd0a0; --b:#6ea6ff; --c:#e7b45a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 520px at 10% -10%, var(--host-soft), transparent 62%),
+    radial-gradient(1000px 520px at 94% -8%, var(--client-soft), transparent 62%),
+    var(--bg);
+  color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;
+  font-size:14px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  padding:26px 22px 34px;
+}
+.wrap{max-width:1320px;margin:0 auto}
+.mono,.k,.codeblock{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","PingFang SC",monospace}
+
+/* ---------- header ---------- */
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 22px;
+  padding:0 4px 16px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.brand{flex:1 1 430px;min-width:280px}
+h1{font-size:21px;line-height:1.35;margin:0 0 4px;font-weight:650;letter-spacing:.2px}
+.sub{color:var(--muted);font-size:12.3px}
+.sub .mono{color:var(--ink-soft)}
+.head-right{display:flex;flex-direction:column;align-items:flex-end;gap:9px}
+.legend{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:11.2px;color:var(--muted);
+  background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 9px 3px 4px}
+.lg b{font-family:ui-monospace,monospace;font-size:10px;width:16px;height:16px;display:inline-flex;
+  align-items:center;justify-content:center;border-radius:5px;color:#fff}
+.lg.a b{background:var(--a)} .lg.b b{background:var(--b)} .lg.c b{background:var(--c)}
+.tools{display:flex;gap:7px}
+button.tgl{font:inherit;font-size:11.5px;color:var(--ink-soft);background:var(--surface);
+  border:1px solid var(--line-strong);border-radius:8px;padding:4px 10px;cursor:pointer}
+button.tgl:hover{border-color:var(--host);color:var(--ink)}
+
+/* ---------- shared bits ---------- */
+.k{font-size:11.2px;background:var(--code-bg);color:var(--code-ink);
+  padding:1px 5px;border-radius:5px;border:1px solid var(--line);white-space:nowrap}
+.k.blk{display:block;white-space:normal;word-break:break-word;line-height:1.65;
+  padding:7px 9px;margin:6px 0 2px;font-size:10.9px}
+.k.ok{color:var(--ok)} .k.err{color:var(--err)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:10.6px;font-weight:650;
+  padding:2px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.pill.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.pill.err{color:var(--err);background:var(--err-soft);border-color:transparent}
+.pill.warn{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.pill.host{color:var(--host);background:var(--host-soft);border-color:transparent}
+.pill.client{color:var(--client);background:var(--client-soft);border-color:transparent}
+.pill.neutral{color:var(--muted);background:var(--surface-2)}
+.src{font-family:ui-monospace,monospace;font-size:9px;font-weight:700;vertical-align:super;
+  padding:0 4px;border-radius:3px;margin-left:4px;color:#fff;white-space:nowrap}
+.src.a{background:var(--a)} .src.b{background:var(--b)} .src.c{background:var(--c)}
+.hint{font-size:11px;color:var(--muted);margin:6px 0 0;padding-left:26px;position:relative}
+.hint::before{content:"↳";position:absolute;left:9px;color:var(--line-strong)}
+.arw{color:var(--muted);font-size:12px}
+
+/* ---------- stage / columns ---------- */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 240px minmax(0,1fr);gap:16px;align-items:stretch}
+.col,.mid-card,.panel{background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow)}
+.col{overflow:hidden;display:flex;flex-direction:column}
+.col-head{padding:14px 16px 12px;border-bottom:1px solid var(--line);position:relative}
+.col-head::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px}
+.col.host .col-head::before{background:var(--host)}
+.col.client .col-head::before{background:var(--client)}
+.col-head .row{display:flex;align-items:center;gap:10px}
+.badge-n{width:27px;height:27px;border-radius:8px;display:inline-flex;align-items:center;
+  justify-content:center;color:#fff;font-weight:700;font-size:15px;flex:none}
+.col.host .badge-n{background:var(--host)} .col.client .badge-n{background:var(--client)}
+.col-head h2{font-size:15.5px;margin:0;font-weight:650;line-height:1.3}
+.col-head .rt{font-size:11.3px;color:var(--muted);margin-top:3px}
+.steps{padding:5px 12px 13px;display:flex;flex-direction:column}
+.step{padding:10px 10px 11px;border-radius:9px}
+.step+.step{border-top:1px dashed var(--line)}
+.step-h{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.sn{width:18px;height:18px;flex:none;border-radius:5px;font-size:10px;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center}
+.col.host .sn{background:var(--host-soft);color:var(--host)}
+.col.client .sn{background:var(--client-soft);color:var(--client)}
+.step-h .t{font-size:12.8px;font-weight:650;color:var(--ink)}
+.step-b{font-size:11.9px;color:var(--ink-soft);padding-left:26px}
+.step-b p{margin:0 0 4px}
+.step-b p:last-child{margin-bottom:0}
+
+/* cleanEnhanced chain */
+.flow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:6px 0 2px}
+
+/* envelope code */
+.codeblock{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;margin:6px 0 0;font-size:10.9px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.codeblock .g{color:var(--ok)} .codeblock .r{color:var(--err)} .codeblock .p{color:var(--client)}
+.codes{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+
+/* four-state machine */
+.fsm{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:7px 0 2px}
+.st{min-width:86px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;
+  padding:6px 9px;display:flex;flex-direction:column;gap:1px}
+.st .hd{display:flex;align-items:center;gap:5px}
+.st .emo{font-size:12px;line-height:1}
+.st .lbl{font-family:ui-monospace,monospace;font-size:10.5px;font-weight:700}
+.st .sub2{font-size:9.6px;color:var(--muted)}
+.st.idle .lbl{color:var(--host)} .st.enhancing .lbl{color:var(--warn)}
+.st.revert .lbl{color:var(--ok)} .st.error .lbl{color:var(--err)}
+
+/* ---------- center: the single call ---------- */
+.mid{display:flex;flex-direction:column;gap:10px;justify-content:center}
+.mid-card{padding:13px 13px 14px}
+.mid-title{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--muted);
+  text-align:center;margin-bottom:4px;font-weight:700}
+.mid-sub{font-size:10.5px;color:var(--muted);text-align:center;margin:0 0 8px}
+.wire{display:block;width:100%;height:auto}
+.wire line{stroke-width:2.5;stroke-linecap:round}
+.wire .host-stroke{stroke:var(--host)}
+.wire .client-stroke{stroke:var(--client)}
+.wire .host-fill{fill:var(--host)}
+.wire .client-fill{fill:var(--client)}
+.wire text{fill:var(--muted);font-size:9px;font-weight:600;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+.wire text.lh{fill:var(--host)} .wire text.lc{fill:var(--client)}
+.pay-row{display:flex;flex-direction:column;gap:4px;align-items:flex-start;margin:9px 0}
+.pay-row .k{width:100%;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:9px}
+.mid-note{font-size:10.4px;color:var(--muted);text-align:center;margin:9px 2px 0;
+  border-top:1px dashed var(--line);padding-top:8px}
+
+/* ---------- bottom band ---------- */
+.bottom{margin-top:16px;display:grid;grid-template-columns:1.05fr .95fr;gap:16px}
+.panel{padding:14px 16px 15px}
+.panel h3{font-size:12.6px;margin:0 0 11px;font-weight:700;display:flex;align-items:center;gap:8px}
+.panel h3 .n{width:19px;height:19px;border-radius:6px;background:var(--surface-2);
+  border:1px solid var(--line);color:var(--muted);font-size:10.5px;
+  display:inline-flex;align-items:center;justify-content:center;font-family:ui-monospace,monospace}
+.panel h3 .tail{margin-left:auto;font-size:10.5px;color:var(--muted);font-weight:500}
+.allow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.deny{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin-top:10px}
+.dchip{font-size:10.8px;color:var(--ink-soft);background:var(--surface-2);
+  border:1px solid var(--line);border-radius:6px;padding:3px 8px}
+.panel-note{font-size:10.6px;color:var(--muted);margin:11px 0 0;
+  border-top:1px dashed var(--line);padding-top:9px}
+.pits{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pits li{display:flex;gap:9px;align-items:flex-start}
+.pn{width:18px;height:18px;flex:none;border-radius:5px;background:var(--warn-soft);color:var(--warn);
+  font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+.pits b{font-size:11.7px;font-weight:650}
+.pits p{margin:2px 0 0;font-size:10.9px;color:var(--muted);line-height:1.55}
+
+/* ---------- footer ---------- */
+.foot{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between;
+  margin-top:16px;padding:0 4px;font-size:10.6px;color:var(--muted)}
+.foot .mono{color:var(--ink-soft)}
+
+/* ---------- responsive ---------- */
+@media(max-width:1000px){
+  .stage{grid-template-columns:1fr}
+  .bottom{grid-template-columns:1fr}
+  .wire{max-width:440px;margin:0 auto}
+  .head-right{align-items:flex-start}
+  .legend{justify-content:flex-start}
+}
+@media(max-width:600px){
+  body{padding:16px 12px 26px}
+  h1{font-size:18px}
+  .stage{gap:12px}
+  .step-b,.hint{padding-left:0}
+  .hint::before{display:none}
+}
+
+/* ---------- print: always clean light ---------- */
+@media print{
+  :root,:root[data-theme="dark"]{
+    --bg:#fff;--surface:#fff;--surface-2:#f6f8fc;--ink:#182033;--ink-soft:#3d4760;
+    --muted:#6b758c;--line:#dde3ed;--line-strong:#c7d0de;
+    --host:#2b6fd6;--host-soft:rgba(43,111,214,.10);
+    --client:#7a52cc;--client-soft:rgba(122,82,204,.10);
+    --ok:#12855c;--ok-soft:rgba(18,133,92,.11);--err:#c33a52;--err-soft:rgba(195,58,82,.10);
+    --warn:#a9740d;--warn-soft:rgba(169,116,13,.11);
+    --code-bg:#edf2f9;--code-ink:#26406b;--shadow:none;
+    --a:#12855c;--b:#2b6fd6;--c:#a9740d;
+  }
+  body{background:#fff;padding:0}
+  .tools{display:none}
+  .col,.mid-card,.panel{box-shadow:none}
+}
+@page{size:A3 landscape;margin:9mm}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>DSH 增强提示词插件 · 两半结构与一次调用链</h1>
+      <div class="sub"><span class="mono">dsh-prompt-enhance-local</span> — 一次 <span class="mono">POST /prompt-enhance/enhance</span> 把 Host 半与 Client 半串起来；本机实测交接稿 · 单页速览</div>
+    </div>
+    <div class="head-right">
+      <div class="legend" aria-label="来源图例">
+        <span class="lg a"><b>A</b> 本机实测</span>
+        <span class="lg b"><b>B</b> 社区文档</span>
+        <span class="lg c"><b>C</b> 待定</span>
+      </div>
+      <div class="tools">
+        <button class="tgl" id="themeBtn" type="button">◐ 深色</button>
+        <button class="tgl" id="printBtn" type="button">⎙ 打印 / PDF</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="stage">
+
+    <!-- ==================== LEFT: HOST ==================== -->
+    <section class="col host" aria-label="Host 半">
+      <div class="col-head">
+        <div class="row">
+          <span class="badge-n">①</span>
+          <div>
+            <h2>Host 半 · 服务端</h2>
+            <div class="rt">Node / ESM · 注册本机路由、守同源闸门、调一次 LLM、清洗并回 envelope</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps">
+
+        <div class="step">
+          <div class="step-h"><span class="sn">1</span><span class="t">入口与生命周期</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <p><span class="k">export const name</span> + <span class="k">export function apply(ctx)</span></p>
+            <p>所有注册都放进 <span class="k">ctx.effect()</span> 并返回 disposer —— 插件卸载时<strong>全部可逆</strong>。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">2</span><span class="t">注入本机路由</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <p><span class="k">ctx.inject(['webServer'], install)</span> → 在 <span class="k">ctx.effect()</span> 内注册：</p>
+            <span class="k blk">webServer.register({kind:'prefix', path:'/prompt-enhance', handler})</span>
+            <p>纯前缀路由，只挂在本机 DSH 的 Web 服务上。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">3</span><span class="t">同源闸门 · fail-closed</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <p><span class="k">ctx.get('connection').requestRejection(req)</span> → 返回值 <strong>非 undefined 即 403</strong>（fail-closed）。</p>
+            <p>另校验 loopback host + <span class="k">sec-fetch-site</span> + <span class="k">Origin</span>。</p>
+            <p class="codes">
+              <span class="pill err">403 forbidden · 跨站</span>
+              <span class="pill err">405 method_not_allowed · 非 POST</span>
+              <span class="pill err">400 bad_request · 坏 JSON</span>
+            </p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">4</span><span class="t">HTTP 契约</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <p><span class="k">POST /prompt-enhance/enhance</span> · body <span class="k">{text, model?}</span></p>
+            <p><strong>恒返回 HTTP 200</strong> envelope —— 业务成败放在 body 的 <span class="k">success</span> 里，不用 HTTP 状态码表达。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">5</span><span class="t">选模型</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <p><span class="k">ctx.agentDefaultModel.currentSelection()</span> → <span class="k">{provider, model, reasoningEffort?}</span></p>
+            <p>请求体里的 <span class="k">model?</span> 可覆盖；只走本机 DSH 模型路由。</p>
+            <p class="hint"><span class="k">reasoningEffort?</span> 是否随调用透传仍<span class="src c" title="待定">C</span>待定。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">6</span><span class="t">单次 LLM 调用</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <p><span class="k">ctx.llm.stream(options)</span> —— <strong>单次尝试</strong>。</p>
+            <p><strong>不受 dsh-llm-retry 覆盖</strong>：它只包裹 agent-loop 的步骤，这里绕过整个 agent loop。</p>
+            <p>messages = <strong>恰好 system + user</strong>；<span class="k err">NO tools</span> / <span class="k err">NO history</span> / <span class="k err">NO temperature</span> / <span class="k err">NO maxTokens</span>。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">7</span><span class="t">聚合与清洗</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <p>聚合 <span class="k">text-delta</span> 分片；检查 <span class="k">finish.reason.kind</span> ∈ {<span class="k">error</span>, <span class="k">aborted</span>}。</p>
+            <div class="flow">
+              <span class="k">trim</span><span class="arw">→</span>
+              <span class="k">去零宽字符</span><span class="arw">→</span>
+              <span class="k">剥代码围栏 / “Enhanced prompt:” 前缀</span><span class="arw">→</span>
+              <span class="k">剥首尾各一个中英包裹引号</span><span class="arw">→</span>
+              <span class="k err">空则 llm_error</span>
+            </div>
+            <p class="hint"><span class="k">cleanEnhanced</span> 全是软规则：LLM 输出<strong>没有固定小标题</strong>可依赖。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">8</span><span class="t">返回 envelope</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <div class="codeblock"><span class="g">{success:true, text}</span>
+<span class="r">{success:false, text:'', code, error}</span></div>
+            <p style="margin-top:6px">错误码：</p>
+            <p class="codes">
+              <span class="k">empty_input</span><span class="k">llm_unavailable</span><span class="k">llm_error</span>
+              <span class="k">forbidden</span><span class="k">method_not_allowed</span><span class="k">bad_request</span><span class="k">unknown</span>
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== CENTER: THE ONE CALL ==================== -->
+    <aside class="mid" aria-label="一次调用链">
+      <div class="mid-card">
+        <div class="mid-title">一次调用链</div>
+        <p class="mid-sub">单次请求 / 响应 · 同源回环</p>
+
+        <svg class="wire" viewBox="0 0 190 112" role="img" aria-label="Client 发出 POST 请求到 Host，Host 返回 HTTP 200 响应">
+          <text x="12" y="15" text-anchor="start" class="lh">Host 半</text>
+          <text x="178" y="15" text-anchor="end" class="lc">Client 半</text>
+
+          <line x1="170" y1="48" x2="24" y2="48" class="host-stroke"/>
+          <path d="M24,48 L36,42 L36,54 Z" class="host-fill"/>
+          <text x="97" y="38" text-anchor="middle">① 请求 · POST</text>
+
+          <line x1="20" y1="80" x2="166" y2="80" class="client-stroke"/>
+          <path d="M166,80 L154,74 L154,86 Z" class="client-fill"/>
+          <text x="97" y="102" text-anchor="middle">② 响应 · HTTP 200</text>
+
+          <circle cx="12" cy="64" r="3" class="host-fill"/>
+          <circle cx="178" cy="64" r="3" class="client-fill"/>
+        </svg>
+
+        <div class="pay-row"><span class="pill host">① 请求</span><span class="k blk">POST /prompt-enhance/enhance<br>body {text, model?}</span></div>
+        <div class="pay-row"><span class="pill client">② 响应</span><span class="k blk">HTTP 200 · envelope<br>{success, text, code, error}</span></div>
+
+        <div class="chips">
+          <span class="pill neutral">同源 fail-closed</span>
+          <span class="pill neutral">仅本机回环</span>
+          <span class="pill neutral">恒 HTTP 200</span>
+          <span class="pill neutral">单次 · 非流式</span>
+        </div>
+        <p class="mid-note">请求由 Client 发出、响应只回 Client；不经过任何外部服务。</p>
+      </div>
+    </aside>
+
+    <!-- ==================== RIGHT: CLIENT ==================== -->
+    <section class="col client" aria-label="Client 半">
+      <div class="col-head">
+        <div class="row">
+          <span class="badge-n">②</span>
+          <div>
+            <h2>Client 半 · 浏览器</h2>
+            <div class="rt">CommonJS 模块 · 注入输入框右侧按钮、管四态、整段替换草稿</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="steps">
+
+        <div class="step">
+          <div class="step-h"><span class="sn">1</span><span class="t">模块与打包</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <p><span class="k blk" style="margin-top:0">module.exports = { name, inject:['slots'], apply }</span></p>
+            <p>由 <span class="k">window.__ModuleLoader__.load</span> 打包加载进宿主 Web GUI。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">2</span><span class="t">注入按钮槽位</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <span class="k blk">ctx.effect(() =&gt; ctx.slots.inject('conversation.input.right',<br>&nbsp;&nbsp;() =&gt; ctx.slots.register({name,id,order,locale,inject}, EnhanceButton)))</span>
+            <p>同样包在 <span class="k">ctx.effect()</span> 里，卸载时可逆。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">3</span><span class="t">文案本地化</span><span class="src b" title="社区文档">B</span></div>
+          <div class="step-b">
+            <p><span class="k">ctx.locale.register(NS, {zh, en})</span> —— 按钮文案与失败原因走统一命名空间。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">4</span><span class="t">与草稿交互</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <p>Shell 传入 props：<span class="k">useInput(s =&gt; s.draft)</span> + <span class="k">inputActions.setDraft(text)</span></p>
+            <p><strong>整段草稿替换</strong>，<span class="k err">NEVER 自动发送</span>。</p>
+            <p><span class="k">setDraft</span> 是 Lexical <span class="k">history-merge</span> 编辑 → 原生 Cmd+Z 回不到增强前文本 → <strong>精确拦截一次</strong> Cmd/Ctrl+Z。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">5</span><span class="t">四态机</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <div class="fsm">
+              <div class="st idle"><div class="hd"><span class="emo">✨</span><span class="lbl">idle</span></div><span class="sub2">增强提示词</span></div>
+              <span class="arw">→</span>
+              <div class="st enhancing"><div class="hd"><span class="emo">⏳</span><span class="lbl">enhancing</span></div><span class="sub2">增强中… 点击=abort</span></div>
+              <span class="arw">→</span>
+              <div class="st revert"><div class="hd"><span class="emo">↩</span><span class="lbl">revert</span></div><span class="sub2">恢复原文</span></div>
+              <span class="arw">→</span>
+              <div class="st error"><div class="hd"><span class="emo">⚠</span><span class="lbl">error</span></div><span class="sub2">增强失败 · 重试</span></div>
+            </div>
+            <p class="hint">空草稿 → <strong>按钮不渲染</strong>；<span class="k">error</span> 的 <span class="k">title</span> 显示失败原因，点击重试。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-h"><span class="sn">6</span><span class="t">铁律 · 写回与生命周期</span><span class="src a" title="本机实测">A</span></div>
+          <div class="step-b">
+            <p>失败<strong>绝不写回</strong>草稿；调用期间草稿被改动 → 放弃写回；成功后 <span class="k">草稿 !== enhanced</span> → 还原点失效。</p>
+            <p>切换会话重置 · 卸载 abort · <span class="k err">不做流式回填</span> · <span class="k err">不弹 toast</span>。</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== BOTTOM: HARD BOUNDARIES + 5 PITS ==================== -->
+  <section class="bottom" aria-label="硬边界与关键坑">
+
+    <div class="panel">
+      <h3><span class="n">▣</span> 硬边界 · 一次调用能做什么<span class="tail">只在本机闭环</span></h3>
+      <div class="allow">
+        <span class="pill ok">✓ 允许</span>
+        <span class="k">只经过本机 DSH 模型路由</span>
+      </div>
+      <div class="deny">
+        <span class="pill err">✕ 禁止</span>
+        <span class="dchip">不访问任何外部服务 / WorkBuddy</span>
+        <span class="dchip">不进 agent loop</span>
+        <span class="dchip">不注册工具</span>
+        <span class="dchip">不写会话日志</span>
+        <span class="dchip">不自动发送</span>
+        <span class="dchip">不做流式回填</span>
+      </div>
+      <p class="panel-note">两半的所有注册都经 <span class="k">ctx.effect()</span> disposer 可逆；整条链路不依赖 CDN、外部服务或插件外状态。</p>
+    </div>
+
+    <div class="panel">
+      <h3><span class="n">5</span> 14 条坑 · 最关键的 5 条<span class="tail">小字注释</span></h3>
+      <ol class="pits">
+        <li><span class="pn">1</span><div>
+          <b><span class="k">$&amp;</span> 函数式替换</b><span class="src a" title="本机实测">A</span>
+          <p>替换串里的 <span class="k">$&amp;</span> 会被展开成"整个匹配"；用 <span class="k">() =&gt; text</span> 函数式替换，别拼字符串。</p>
+        </div></li>
+        <li><span class="pn">2</span><div>
+          <b>原生撤销失效</b><span class="src a" title="本机实测">A</span>
+          <p><span class="k">setDraft</span> 是 Lexical <span class="k">history-merge</span> 编辑，Cmd+Z 回不到增强前；必须精确拦截<strong>一次</strong> Cmd/Ctrl+Z。</p>
+        </div></li>
+        <li><span class="pn">3</span><div>
+          <b>内联 @引用 chip 会丢</b><span class="src a" title="本机实测">A</span>
+          <p>整段 <span class="k">setDraft</span> 覆盖草稿会丢掉内联 <span class="k">@</span> 引用 chip（富文本节点），不是纯文本能还原的。</p>
+        </div></li>
+        <li><span class="pn">4</span><div>
+          <b>无固定小标题</b><span class="src b" title="社区文档">B</span><span class="src c" title="待定">C</span>
+          <p>LLM 输出没有稳定的小标题格式，<span class="k">cleanEnhanced</span> 只能靠前缀 / 围栏 / 引号做软规则；多重引号等边界仍待定。</p>
+        </div></li>
+        <li><span class="pn">5</span><div>
+          <b>失败不覆盖草稿</b><span class="src a" title="本机实测">A</span>
+          <p><span class="k">success:false</span>、调用中草稿被改动、成功后 <span class="k">草稿 !== enhanced</span> —— 三种情况都放弃写回。</p>
+        </div></li>
+      </ol>
+    </div>
+
+  </section>
+
+  <footer class="foot">
+    <span><span class="mono">dsh-prompt-enhance-local</span> · 增强提示词插件 · 两半结构与一次调用链</span>
+    <span class="foot-r">单文件离线 · 内联 SVG / CSS / JS · 无 CDN、无外部资源　|　图例见页首 [A 本机实测 / B 社区文档 / C 待定]</span>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('themeBtn');
+  function label() {
+    btn.textContent = root.getAttribute('data-theme') === 'dark' ? '☀ 浅色' : '◐ 深色';
+  }
+  label();
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('dsh-pe-theme', next); } catch (e) {}
+    label();
+  });
+  var pr = document.getElementById('printBtn');
+  if (pr) pr.addEventListener('click', function () { window.print(); });
+})();
+</script>
+</body>
+</html>
